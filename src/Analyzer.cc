@@ -87,8 +87,8 @@ class Analyzer : public edm::EDAnalyzer {
    //HLTObjects
    unsigned int number_Filters;
    vector<double> *pt[maxFilterObjects],*eta[maxFilterObjects],*phi[maxFilterObjects];
-   vector<InputTag> fhltFilterNames;
-   InputTag ftriggerEventTag;
+   vector<InputTag> fHLTFilterNames;
+   InputTag fTriggerResultsTag,fTriggerEventTag;
    //PrimaryVertex
    vector<double> *vx,*vxError,*vy,*vyError,*vz,*vzError;
    //Generation Level Muon
@@ -118,9 +118,11 @@ Analyzer::Analyzer(const edm::ParameterSet& iConfig)
    fMuon_Tree = fs->make<TTree>("Muon","Muon");
    fSummarization_Tree = fs->make<TTree>("Summerization","Summerization");
    const InputTag default_TriggerEventTag("hltTriggerSummaryAOD","","HLT");
-   ftriggerEventTag = iConfig.getUntrackedParameter<InputTag>("triggerEventTag",default_TriggerEventTag);
-   fhltFilterNames = iConfig.getParameter< vector<InputTag> >("hltFilterNames");
-   number_Filters = int(fhltFilterNames.size());
+   const InputTag default_TriggerResultsTag("TriggerResults::HLT");
+   fTriggerResultsTag = iConfig.getUntrackedParameter<InputTag>("TriggerResultsTag",default_TriggerResultsTag);
+   fTriggerEventTag = iConfig.getUntrackedParameter<InputTag>("triggerEventTag",default_TriggerEventTag);
+   fHLTFilterNames = iConfig.getParameter< vector<InputTag> >("hltFilterNames");
+   number_Filters = int(fHLTFilterNames.size());
    if (number_Filters>maxFilterObjects)
      {
 	printf("You need to increase the constant maxFilterObjects.\n");
@@ -148,8 +150,7 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
    //int eventNum = iEvent.id().event();
    //HLT Information
    Handle<TriggerResults> hltTriggerResults;
-   InputTag Tag_TriggerResults("TriggerResults::HLT");
-   iEvent.getByLabel(Tag_TriggerResults,hltTriggerResults);
+   iEvent.getByLabel(fTriggerResultsTag,hltTriggerResults);
    if (hltTriggerResults.isValid()) 
      {
        if (!HLTNameSaved)
@@ -240,14 +241,14 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
    if (!muon.number||!antimuon.number) return;//only keep the events which contains at least one muon and one antimuon
    //HLT Objects
    Handle<trigger::TriggerEvent> trgEvent;
-   iEvent.getByLabel(ftriggerEventTag,trgEvent);
+   iEvent.getByLabel(fTriggerEventTag,trgEvent);
    if(trgEvent.isValid())
      {
        const trigger::TriggerObjectCollection& TOC = trgEvent->getObjects();
        int Total_Filters = trgEvent->sizeFilters();
        for( i =0; i < number_Filters;i++)
 	 {
-	   trigger::size_type pos_Filter = trgEvent->filterIndex(fhltFilterNames[i]);
+	   trigger::size_type pos_Filter = trgEvent->filterIndex(fHLTFilterNames[i]);
 	   if (pos_Filter < Total_Filters)
 	     {
 	       const trigger::Keys& KEYS(trgEvent->filterKeys(pos_Filter));
@@ -261,10 +262,10 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 		   phi[i]->push_back(TO.phi());
 		 }
 	     }
-	   else cout<<"FilterName \""<<fhltFilterNames[i].label()<<"\" is not valid."<<endl;
+	   else cout<<"FilterName \""<<fHLTFilterNames[i].label()<<"\" is not valid."<<endl;
 	 }
      }
-     else cout<<"TriggerEventTag \""<<ftriggerEventTag.label()<<"\" is not valid."<<endl;
+     else cout<<"TriggerEventTag \""<<fTriggerEventTag.label()<<"\" is not valid."<<endl;
    //Primary Vertex
    Handle<reco::VertexCollection> recVtxs;
    iEvent.getByLabel("offlinePrimaryVerticesWithBS", recVtxs);//"offlinePrimaryVerticesWithBS": Primary vertex reconstructed using the tracks taken from the generalTracks collection, and imposing the offline beam spot as a constraint in the fit of the vertex position. Another possible tag is "offlinePrimaryVertices", which is Primary vertex reconstructed using the tracks taken from the generalTracks collection
@@ -335,11 +336,11 @@ Analyzer::beginJob()
       pt[i]=new vector<double>();
       eta[i]=new vector<double>();
       phi[i]=new vector<double>();
-      HLTTriggerNames=fhltFilterNames[i].label()+"_pt";
+      HLTTriggerNames=fHLTFilterNames[i].label()+"_pt";
       fMuon_Tree->Branch(HLTTriggerNames.c_str(),&pt[i]);
-      HLTTriggerNames=fhltFilterNames[i].label()+"_eta";
+      HLTTriggerNames=fHLTFilterNames[i].label()+"_eta";
       fMuon_Tree->Branch(HLTTriggerNames.c_str(),&eta[i]);
-      HLTTriggerNames=fhltFilterNames[i].label()+"_phi";
+      HLTTriggerNames=fHLTFilterNames[i].label()+"_phi";
       fMuon_Tree->Branch(HLTTriggerNames.c_str(),&phi[i]);
       }
   //Primary Vertex

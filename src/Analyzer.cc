@@ -14,7 +14,7 @@
 //
 // Original Author:  Jinzhong Zhang
 //         Created:  Wed Sep  9 18:30:00 CEST 2009
-// $Id$
+// $Id: Analyzer.cc,v 1.3 2009/10/21 13:16:32 zhangjin Exp $
 //
 //
 
@@ -90,6 +90,7 @@ class Analyzer : public edm::EDAnalyzer {
    vector<InputTag> fHLTFilterNames;
    InputTag fTriggerResultsTag,fTriggerEventTag;
    //PrimaryVertex
+   string fPrimaryVerticesTag;
    vector<double> *vx,*vxError,*vy,*vyError,*vz,*vzError;
    //Generation Level Muon
    vector<float> *Gen_pt,*Gen_eta,*Gen_phi,*AntiGen_pt,*AntiGen_eta,*AntiGen_phi;
@@ -117,9 +118,10 @@ Analyzer::Analyzer(const edm::ParameterSet& iConfig)
    Service<TFileService> fs;
    fMuon_Tree = fs->make<TTree>("Muon","Muon");
    fSummarization_Tree = fs->make<TTree>("Summerization","Summerization");
-   const InputTag default_TriggerEventTag("hltTriggerSummaryAOD","","HLT");
+   fPrimaryVerticesTag = iConfig.getUntrackedParameter<string>("PrimaryVertices","offlinePrimaryVerticesWithBS");//"offlinePrimaryVerticesWithBS": Primary vertex reconstructed using the tracks taken from the generalTracks collection, and imposing the offline beam spot as a constraint in the fit of the vertex position. Another possible tag is "offlinePrimaryVertices", which is Primary vertex reconstructed using the tracks taken from the generalTracks collection
    const InputTag default_TriggerResultsTag("TriggerResults::HLT");
    fTriggerResultsTag = iConfig.getUntrackedParameter<InputTag>("TriggerResultsTag",default_TriggerResultsTag);
+   const InputTag default_TriggerEventTag("hltTriggerSummaryAOD","","HLT");
    fTriggerEventTag = iConfig.getUntrackedParameter<InputTag>("triggerEventTag",default_TriggerEventTag);
    fHLTFilterNames = iConfig.getParameter< vector<InputTag> >("hltFilterNames");
    number_Filters = int(fHLTFilterNames.size());
@@ -268,7 +270,7 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
      else cout<<"TriggerEventTag \""<<fTriggerEventTag.label()<<"\" is not valid."<<endl;
    //Primary Vertex
    Handle<reco::VertexCollection> recVtxs;
-   iEvent.getByLabel("offlinePrimaryVerticesWithBS", recVtxs);//"offlinePrimaryVerticesWithBS": Primary vertex reconstructed using the tracks taken from the generalTracks collection, and imposing the offline beam spot as a constraint in the fit of the vertex position. Another possible tag is "offlinePrimaryVertices", which is Primary vertex reconstructed using the tracks taken from the generalTracks collection
+   iEvent.getByLabel(fPrimaryVerticesTag.c_str(),recVtxs);
    if (recVtxs.isValid())
       for(reco::VertexCollection::const_iterator v=recVtxs->begin(); v!=recVtxs->end(); ++v)
 	{

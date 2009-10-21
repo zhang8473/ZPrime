@@ -4,11 +4,12 @@ process = cms.Process("MuonSelector")
 
 process.source = cms.Source("PoolSource",
 #                            fileNames = cms.untracked.vstring()
-    fileNames = cms.untracked.vstring('file:~/RECO_ZpAll_HighLum.root')
+    fileNames = cms.untracked.vstring('file:~/RECO_StZp_all_LowLum.root')
 )
 process.maxEvents = cms.untracked.PSet( input = cms.untracked.int32(-1) )
 
 process.MuonAnalyzer = cms.EDAnalyzer('Analyzer',
+                PrimaryVertices = cms.untracked.string("offlinePrimaryVertices"),
                 TriggerResultsTag = cms.untracked.InputTag("TriggerResults::HLT8E29"),
                 triggerEventTag = cms.untracked.InputTag("hltTriggerSummaryAOD","","HLT8E29"),
                 hltFilterNames = cms.VInputTag(cms.InputTag("hltL2Mu11L2Filtered11","","HLT8E29"),

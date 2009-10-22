@@ -14,7 +14,7 @@
 //
 // Original Author:  Jinzhong Zhang
 //         Created:  Wed Sep  9 18:30:00 CEST 2009
-// $Id: Analyzer.cc,v 1.3 2009/10/21 13:16:32 zhangjin Exp $
+// $Id: Analyzer.cc,v 1.4 2009/10/21 16:45:57 zhangjin Exp $
 //
 //
 
@@ -60,6 +60,8 @@
 #define maxMuon 50
 #define maxHLTnum 200
 #define maxFilterObjects 30
+#define maxKindsofPV 6
+
 //
 // class decleration
 //
@@ -90,8 +92,9 @@ class Analyzer : public edm::EDAnalyzer {
    vector<InputTag> fHLTFilterNames;
    InputTag fTriggerResultsTag,fTriggerEventTag;
    //PrimaryVertex
-   string fPrimaryVerticesTag;
-   vector<double> *vx,*vxError,*vy,*vyError,*vz,*vzError;
+   unsigned int number_kindsofPV;
+   vector<string> fPrimaryVerticesTag;
+   vector<double> *vx[maxKindsofPV],*vxError[maxKindsofPV],*vy[maxKindsofPV],*vyError[maxKindsofPV],*vz[maxKindsofPV],*vzError[maxKindsofPV];
    //Generation Level Muon
    vector<float> *Gen_pt,*Gen_eta,*Gen_phi,*AntiGen_pt,*AntiGen_eta,*AntiGen_phi;
    //Muon
@@ -118,13 +121,22 @@ Analyzer::Analyzer(const edm::ParameterSet& iConfig)
    Service<TFileService> fs;
    fMuon_Tree = fs->make<TTree>("Muon","Muon");
    fSummarization_Tree = fs->make<TTree>("Summerization","Summerization");
-   fPrimaryVerticesTag = iConfig.getUntrackedParameter<string>("PrimaryVertices","offlinePrimaryVerticesWithBS");//"offlinePrimaryVerticesWithBS": Primary vertex reconstructed using the tracks taken from the generalTracks collection, and imposing the offline beam spot as a constraint in the fit of the vertex position. Another possible tag is "offlinePrimaryVertices", which is Primary vertex reconstructed using the tracks taken from the generalTracks collection
+   vector< string > default_PVTags;
+   default_PVTags.push_back("offlinePrimaryVerticesWithBS");
+   default_PVTags.push_back("offlinePrimaryVertices");
+   fPrimaryVerticesTag = iConfig.getUntrackedParameter< vector<string> >("PrimaryVertices",default_PVTags);//"offlinePrimaryVerticesWithBS": Primary vertex reconstructed using the tracks taken from the generalTracks collection, and imposing the offline beam spot as a constraint in the fit of the vertex position. Another possible tag is "offlinePrimaryVertices", which is Primary vertex reconstructed using the tracks taken from the generalTracks collection
+   number_kindsofPV=fPrimaryVerticesTag.size();
+   if (number_kindsofPV>maxKindsofPV)
+     {
+	printf("You need to increase the constant maxKindsofPV.\n");
+	exit(0);
+     }
    const InputTag default_TriggerResultsTag("TriggerResults::HLT");
    fTriggerResultsTag = iConfig.getUntrackedParameter<InputTag>("TriggerResultsTag",default_TriggerResultsTag);
    const InputTag default_TriggerEventTag("hltTriggerSummaryAOD","","HLT");
    fTriggerEventTag = iConfig.getUntrackedParameter<InputTag>("triggerEventTag",default_TriggerEventTag);
    fHLTFilterNames = iConfig.getParameter< vector<InputTag> >("hltFilterNames");
-   number_Filters = int(fHLTFilterNames.size());
+   number_Filters = fHLTFilterNames.size();
    if (number_Filters>maxFilterObjects)
      {
 	printf("You need to increase the constant maxFilterObjects.\n");
@@ -147,7 +159,7 @@ Analyzer::~Analyzer()
 void
 Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 {	
-   unsigned int i,j,number_Keys=0,Total_Muon=0;
+  unsigned int i,j,k,number_Keys=0;
    Total_Events++;
    //int eventNum = iEvent.id().event();
    //HLT Information
@@ -176,27 +188,31 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
       for (i = 0 ; i < HLTSize ; i++) 
 	HLTacceptance[i]=hltTriggerResults->accept(i);
     }
-   else
-     {
-       printf("Invalid handle of HLT TriggerResults.\n");
-       return;
-     }
+   else printf("Invalid TriggerResultsTag:\"%s\".\n",fTriggerResultsTag.label().c_str());
        
    //Muon
    Handle<reco::MuonCollection> Muon;
    iEvent.getByLabel("muons", Muon);
    if (!Muon.isValid()) return;
-   unsigned char MuonQueue[maxMuon],temp;
+   unsigned char MuonQueue[2][maxMuon],temp;// MuonQueue[0][i] for Muons,MuonQueue[1][i] for AntiMuons,
    reco::MuonCollection const & muons = *Muon;
    reco::Muon iterMuon;
-   i=0;
+   i=0;muon.number=0;antimuon.number=0;
    for ( reco::MuonCollection::const_iterator iter = muons.begin(); iter != muons.end() ; ++iter)
      { 
        if (iter->isGlobalMuon()&&iter->pt()>20)
 	 {
-	   MuonQueue[Total_Muon]=i;
-	   Total_Muon++;
-	   if (Total_Muon>=maxMuon)
+	   if (iter->charge()==-1) 
+	     {
+	       MuonQueue[0][muon.number]=i;
+	       muon.number++;
+	     }
+	   else 
+	     {
+	       MuonQueue[1][antimuon.number]=i;
+	       antimuon.number++;
+	     }
+	   if (muon.number>=maxMuon||antimuon.number>=maxMuon)
 	     {
 	       printf("You need to increase the constant maxMuon.\n");
 	       break;
@@ -204,41 +220,43 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 	 }
        i++;
      }
-   for (i=0; i<Total_Muon; i++)
-     for (j=i+1; j<Total_Muon; j++) 
-       if (muons[MuonQueue[i]].pt()<muons[MuonQueue[j]].pt())
-	 {
-	   temp=MuonQueue[i];
-	   MuonQueue[i]=MuonQueue[j];
-	   MuonQueue[j]=temp;
-	 }
-   muon.number=0;antimuon.number=0;
-   for (i=0; i<Total_Muon; i++)
+   muonpointer=&muon;
+   for (k=0; k<2; k++)
      {
-        iterMuon=muons[MuonQueue[i]];
-	if (iterMuon.charge()==-1) muonpointer=&muon; else muonpointer=&antimuon;
-	muonpointer->pt[muonpointer->number]=iterMuon.pt();
-	muonpointer->eta[muonpointer->number]=iterMuon.eta();
-	muonpointer->phi[muonpointer->number]=iterMuon.phi();
-	muonpointer->Vertex[muonpointer->number][0]=iterMuon.vertex().X();
-	muonpointer->Vertex[muonpointer->number][1]=iterMuon.vertex().Y();
-	muonpointer->Vertex[muonpointer->number][2]=iterMuon.vertex().Z();
-	muonpointer->isoR03sumPt[muonpointer->number]=iterMuon.isolationR03().sumPt;
-	muonpointer->isoR03emEt[muonpointer->number]=iterMuon.isolationR03().emEt;
-	muonpointer->isoR03hadEt[muonpointer->number]=iterMuon.isolationR03().hadEt;
-	muonpointer->isoR03hoEt[muonpointer->number]=iterMuon.isolationR03().hoEt;
-	muonpointer->isoR03nJets[muonpointer->number]=iterMuon.isolationR03().nJets;
-	muonpointer->isoR03nTracks[muonpointer->number]=iterMuon.isolationR03().nTracks;
-	muonpointer->isoR05sumPt[muonpointer->number]=iterMuon.isolationR05().sumPt;
-	muonpointer->isoR05emEt[muonpointer->number]=iterMuon.isolationR05().emEt;
-	muonpointer->isoR05hadEt[muonpointer->number]=iterMuon.isolationR05().hadEt;
-	muonpointer->isoR05hoEt[muonpointer->number]=iterMuon.isolationR05().hoEt;
-	muonpointer->isoR05nJets[muonpointer->number]=iterMuon.isolationR05().nJets;
-	muonpointer->isoR05nTracks[muonpointer->number]=iterMuon.isolationR05().nTracks;
-	muonpointer->isoemVetoEt[muonpointer->number]=iterMuon.isolationR03().emVetoEt;
-	muonpointer->isohadVetoEt[muonpointer->number]=iterMuon.isolationR03().hadVetoEt;
-	muonpointer->isohoVetoEt[muonpointer->number]=iterMuon.isolationR03().hoVetoEt;
-        muonpointer->number++;
+       for (i=0; i<muonpointer->number; i++)
+	 for (j=i+1; j<muonpointer->number; j++) 
+	   if (muons[MuonQueue[k][i]].pt()<muons[MuonQueue[k][j]].pt())
+	     {
+	       temp=MuonQueue[k][i];
+	       MuonQueue[k][i]=MuonQueue[k][j];
+	       MuonQueue[k][j]=temp;
+	     }
+       for (i=0; i<muonpointer->number; i++)
+	 {
+	   iterMuon=muons[MuonQueue[k][i]];
+	   muonpointer->pt[muonpointer->number]=iterMuon.pt();
+	   muonpointer->eta[muonpointer->number]=iterMuon.eta();
+	   muonpointer->phi[muonpointer->number]=iterMuon.phi();
+	   muonpointer->Vertex[muonpointer->number][0]=iterMuon.vertex().X();
+	   muonpointer->Vertex[muonpointer->number][1]=iterMuon.vertex().Y();
+	   muonpointer->Vertex[muonpointer->number][2]=iterMuon.vertex().Z();
+	   muonpointer->isoR03sumPt[muonpointer->number]=iterMuon.isolationR03().sumPt;
+	   muonpointer->isoR03emEt[muonpointer->number]=iterMuon.isolationR03().emEt;
+	   muonpointer->isoR03hadEt[muonpointer->number]=iterMuon.isolationR03().hadEt;
+	   muonpointer->isoR03hoEt[muonpointer->number]=iterMuon.isolationR03().hoEt;
+	   muonpointer->isoR03nJets[muonpointer->number]=iterMuon.isolationR03().nJets;
+	   muonpointer->isoR03nTracks[muonpointer->number]=iterMuon.isolationR03().nTracks;
+	   muonpointer->isoR05sumPt[muonpointer->number]=iterMuon.isolationR05().sumPt;
+	   muonpointer->isoR05emEt[muonpointer->number]=iterMuon.isolationR05().emEt;
+	   muonpointer->isoR05hadEt[muonpointer->number]=iterMuon.isolationR05().hadEt;
+	   muonpointer->isoR05hoEt[muonpointer->number]=iterMuon.isolationR05().hoEt;
+	   muonpointer->isoR05nJets[muonpointer->number]=iterMuon.isolationR05().nJets;
+	   muonpointer->isoR05nTracks[muonpointer->number]=iterMuon.isolationR05().nTracks;
+	   muonpointer->isoemVetoEt[muonpointer->number]=iterMuon.isolationR03().emVetoEt;
+	   muonpointer->isohadVetoEt[muonpointer->number]=iterMuon.isolationR03().hadVetoEt;
+	   muonpointer->isohoVetoEt[muonpointer->number]=iterMuon.isolationR03().hoVetoEt;
+	 }
+       muonpointer=&antimuon;
      }
    if (!muon.number||!antimuon.number) return;//only keep the events which contains at least one muon and one antimuon
    //HLT Objects
@@ -264,21 +282,24 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 		   phi[i]->push_back(TO.phi());
 		 }
 	     }
-	   else cout<<"FilterName \""<<fHLTFilterNames[i].label()<<"\" is not valid."<<endl;
+	   else printf("FilterName \"%s\" is not valid.\n",fHLTFilterNames[i].label().c_str());
 	 }
      }
-     else cout<<"TriggerEventTag \""<<fTriggerEventTag.label()<<"\" is not valid."<<endl;
+   else printf("TriggerEventTag \"%s\" is not valid.",fTriggerEventTag.label().c_str());
    //Primary Vertex
-   Handle<reco::VertexCollection> recVtxs;
-   iEvent.getByLabel(fPrimaryVerticesTag.c_str(),recVtxs);
-   if (recVtxs.isValid())
-      for(reco::VertexCollection::const_iterator v=recVtxs->begin(); v!=recVtxs->end(); ++v)
-	{
-	   vx->push_back(v->x());	   vxError->push_back(v->xError());
-	   vy->push_back(v->y());	   vyError->push_back(v->yError());
-	   vz->push_back(v->z());	   vzError->push_back(v->zError());
-	 }
-    else printf("PirmaryVertex information is not valid.\n");
+   for (i=0; i < number_kindsofPV; i++)
+     {
+       Handle<reco::VertexCollection> recVtxs;
+       iEvent.getByLabel(fPrimaryVerticesTag[i].c_str(),recVtxs);
+       if (recVtxs.isValid())
+	 for(reco::VertexCollection::const_iterator v=recVtxs->begin(); v!=recVtxs->end(); ++v)
+	   {
+	     vx[i]->push_back(v->x());	   vxError[i]->push_back(v->xError());
+	     vy[i]->push_back(v->y());	   vyError[i]->push_back(v->yError());
+	     vz[i]->push_back(v->z());	   vzError[i]->push_back(v->zError());
+	   }
+       else printf("%s information is not valid.\n",fPrimaryVerticesTag[i].c_str());
+     }
    //Generation level Muons
    Handle<reco::GenParticleCollection> genParticles;
    iEvent.getByLabel("genParticles",genParticles);
@@ -310,10 +331,13 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
        pt[i]->clear();
        eta[i]->clear();
        phi[i]->clear();
-       }
-   vx->clear();   vxError->clear();
-   vy->clear();   vyError->clear();
-   vz->clear();   vzError->clear();
+     }
+   for (i=0; i < number_kindsofPV; i++)
+     {
+       vx[i]->clear();   vxError[i]->clear();
+       vy[i]->clear();   vyError[i]->clear();
+       vz[i]->clear();   vzError[i]->clear();
+     }
    Gen_pt->clear();
    AntiGen_pt->clear();
    Gen_eta->clear();
@@ -345,16 +369,19 @@ Analyzer::beginJob()
       HLTTriggerNames=fHLTFilterNames[i].label()+"_phi";
       fMuon_Tree->Branch(HLTTriggerNames.c_str(),&phi[i]);
       }
-  //Primary Vertex
-  vx = new vector<double>();  vxError = new vector<double>();
-  vy = new vector<double>();  vyError = new vector<double>();
-  vz = new vector<double>();  vzError = new vector<double>();
-  fMuon_Tree->Branch("Primary_Vertex_X",&vx);
-  fMuon_Tree->Branch("Primary_Vertex_eX",&vxError);
-  fMuon_Tree->Branch("Primary_Vertex_Y",&vy);
-  fMuon_Tree->Branch("Primary_Vertex_eY",&vyError);
-  fMuon_Tree->Branch("Primary_Vertex_Z",&vz);
-  fMuon_Tree->Branch("Primary_Vertex_eZ",&vzError);
+  //Primary Vertices
+  for( i =0; i < number_kindsofPV;i++)
+    {
+      vx[i] = new vector<double>();  vxError[i] = new vector<double>();
+      vy[i] = new vector<double>();  vyError[i] = new vector<double>();
+      vz[i] = new vector<double>();  vzError[i] = new vector<double>();
+      fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_X").c_str(),&vx[i]);
+      fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_eX").c_str(),&vxError[i]);
+      fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_Y").c_str(),&vy[i]);
+      fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_eY").c_str(),&vyError[i]);
+      fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_Z").c_str(),&vz[i]);
+      fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_eZ").c_str(),&vzError[i]);
+    }
   //Generation Level Muons
   Gen_pt = new vector<float>();
   Gen_eta = new vector<float>();

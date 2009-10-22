@@ -98,7 +98,7 @@ class Analyzer : public edm::EDAnalyzer {
    //Generation Level Muon
    vector<float> *Gen_pt,*Gen_eta,*Gen_phi,*AntiGen_pt,*AntiGen_eta,*AntiGen_phi;
    //Muon
-   struct Staff_Muon
+   struct Stuff_Muon
    {
 	unsigned int number;
 	float pt[maxMuon],eta[maxMuon],phi[maxMuon],Vertex[maxMuon][3],isoR03sumPt[maxMuon],isoR03emEt[maxMuon],isoR03hadEt[maxMuon],isoR03hoEt[maxMuon],isoR03nJets[maxMuon],isoR03nTracks[maxMuon],isoR05sumPt[maxMuon],isoR05emEt[maxMuon],isoR05hadEt[maxMuon],isoR05hoEt[maxMuon],isoR05nJets[maxMuon],isoR05nTracks[maxMuon],isoemVetoEt[maxMuon],isohadVetoEt[maxMuon],isohoVetoEt[maxMuon];
@@ -234,29 +234,29 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
        for (i=0; i<muonpointer->number; i++)
 	 {
 	   iterMuon=muons[MuonQueue[k][i]];
-	   muonpointer->pt[muonpointer->number]=iterMuon.pt();
-	   muonpointer->eta[muonpointer->number]=iterMuon.eta();
-	   muonpointer->phi[muonpointer->number]=iterMuon.phi();
-	   muonpointer->Vertex[muonpointer->number][0]=iterMuon.vertex().X();
-	   muonpointer->Vertex[muonpointer->number][1]=iterMuon.vertex().Y();
-	   muonpointer->Vertex[muonpointer->number][2]=iterMuon.vertex().Z();
-	   muonpointer->isoR03sumPt[muonpointer->number]=iterMuon.isolationR03().sumPt;
-	   muonpointer->isoR03emEt[muonpointer->number]=iterMuon.isolationR03().emEt;
-	   muonpointer->isoR03hadEt[muonpointer->number]=iterMuon.isolationR03().hadEt;
-	   muonpointer->isoR03hoEt[muonpointer->number]=iterMuon.isolationR03().hoEt;
-	   muonpointer->isoR03nJets[muonpointer->number]=iterMuon.isolationR03().nJets;
-	   muonpointer->isoR03nTracks[muonpointer->number]=iterMuon.isolationR03().nTracks;
-	   muonpointer->isoR05sumPt[muonpointer->number]=iterMuon.isolationR05().sumPt;
-	   muonpointer->isoR05emEt[muonpointer->number]=iterMuon.isolationR05().emEt;
-	   muonpointer->isoR05hadEt[muonpointer->number]=iterMuon.isolationR05().hadEt;
-	   muonpointer->isoR05hoEt[muonpointer->number]=iterMuon.isolationR05().hoEt;
-	   muonpointer->isoR05nJets[muonpointer->number]=iterMuon.isolationR05().nJets;
-	   muonpointer->isoR05nTracks[muonpointer->number]=iterMuon.isolationR05().nTracks;
-	   muonpointer->isoemVetoEt[muonpointer->number]=iterMuon.isolationR03().emVetoEt;
-	   muonpointer->isohadVetoEt[muonpointer->number]=iterMuon.isolationR03().hadVetoEt;
-	   muonpointer->isohoVetoEt[muonpointer->number]=iterMuon.isolationR03().hoVetoEt;
+	   muonpointer->pt[i]=iterMuon.pt();
+	   muonpointer->eta[i]=iterMuon.eta();
+	   muonpointer->phi[i]=iterMuon.phi();
+	   muonpointer->Vertex[i][0]=iterMuon.vertex().X();
+	   muonpointer->Vertex[i][1]=iterMuon.vertex().Y();
+	   muonpointer->Vertex[i][2]=iterMuon.vertex().Z();
+	   muonpointer->isoR03sumPt[i]=iterMuon.isolationR03().sumPt;
+	   muonpointer->isoR03emEt[i]=iterMuon.isolationR03().emEt;
+	   muonpointer->isoR03hadEt[i]=iterMuon.isolationR03().hadEt;
+	   muonpointer->isoR03hoEt[i]=iterMuon.isolationR03().hoEt;
+	   muonpointer->isoR03nJets[i]=iterMuon.isolationR03().nJets;
+	   muonpointer->isoR03nTracks[i]=iterMuon.isolationR03().nTracks;
+	   muonpointer->isoR05sumPt[i]=iterMuon.isolationR05().sumPt;
+	   muonpointer->isoR05emEt[i]=iterMuon.isolationR05().emEt;
+	   muonpointer->isoR05hadEt[i]=iterMuon.isolationR05().hadEt;
+	   muonpointer->isoR05hoEt[i]=iterMuon.isolationR05().hoEt;
+	   muonpointer->isoR05nJets[i]=iterMuon.isolationR05().nJets;
+	   muonpointer->isoR05nTracks[i]=iterMuon.isolationR05().nTracks;
+	   muonpointer->isoemVetoEt[i]=iterMuon.isolationR03().emVetoEt;
+	   muonpointer->isohadVetoEt[i]=iterMuon.isolationR03().hadVetoEt;
+	   muonpointer->isohoVetoEt[i]=iterMuon.isolationR03().hoVetoEt;
 	 }
-       muonpointer=&antimuon;
+        muonpointer=&antimuon;
      }
    if (!muon.number||!antimuon.number) return;//only keep the events which contains at least one muon and one antimuon
    //HLT Objects

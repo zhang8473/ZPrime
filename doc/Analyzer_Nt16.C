@@ -110,15 +110,12 @@ double Analyzer_Nt16::InvarDimuonMass(int Mu_Id1, int Mu_Id2)
       mu2=ROOT::Math::LorentzVector<ROOT::Math::PtEtaPhiM4D<double> >(AntiMuon_pt[-Mu_Id2-1],AntiMuon_eta[-Mu_Id2-1],AntiMuon_phi[-Mu_Id2-1],Muon_Mass);
    return (mu1+mu2).mass();
 }
-void Analyzer_Nt16::Loop()
+Long64_t Analyzer_Nt16::Loop()
 {
-   unsigned int i,Total_Muons=0,Total_AntiMuons=0,Total_Muons_Passed=0,Total_AntiMuons_Passed=0;
-   Hist1D[0] = new TH1D("DM","Dimuons Mass",100, 200, 800 );
-   Hist1D[1] = new TH1D("VD","Vertex D0^2",100,0,0.03);
-   Hist1D[2] = new TH1D("Iso","MuonIsoR03SumPt",100, -2.001, 2.001 );
+   unsigned int i,Total_Muons=0,Total_AntiMuons=0,Total_Muons_Passed=0,Total_AntiMuons_Passed=0, Total_Passed_Events=0;
    vector <int> Passed_Mu,Passed_AntiMu;
    vector <int>::const_iterator Mu1,Mu2;
-   if (fChain == 0) return;
+   if (fChain == 0) return 0;
    Long64_t nentries = fChain->GetEntriesFast();
    Long64_t nbytes = 0, nb = 0;
    for (Long64_t jentry=0; jentry<nentries;jentry++) 
@@ -135,7 +132,8 @@ void Analyzer_Nt16::Loop()
        Total_AntiMuons+=AntiMuon_size;
        Total_Muons_Passed+=Passed_Mu.size();
        Total_AntiMuons_Passed+=Passed_AntiMu.size();
-
+       if (Passed_AntiMu.size()&&Passed_Mu.size()) Total_Passed_Events++;
+	 
        for (Mu1=Passed_Mu.begin();Mu1!=Passed_Mu.end();Mu1++)
 	 for (Mu2=Passed_AntiMu.begin();Mu2!=Passed_AntiMu.end();Mu2++)
 	   Hist1D[0]->Fill(InvarDimuonMass(*Mu1+1,-*Mu2-1));
@@ -154,7 +152,8 @@ void Analyzer_Nt16::Loop()
    }
    clog<<"Total Number of Muons: "<<Total_Muons<<endl<<"Total Number of AntiMuons: "<<Total_AntiMuons<<endl;
    clog<<"Passed Muons: "<<Total_Muons_Passed<<endl<<"Passed AntiMuons: "<<Total_AntiMuons_Passed<<endl;
-   clog<<"Efficiency: "<<(double) (Total_Muons_Passed+Total_AntiMuons_Passed)/(double) (Total_Muons+Total_AntiMuons)<<endl;
+   clog<<"2nd Cut Muon Efficiency (Passed mu+amu/1st Cut mu+amu): "<<(double) (Total_Muons_Passed+Total_AntiMuons_Passed)/(double) (Total_Muons+Total_AntiMuons)<<endl;
+   return Total_Passed_Events;
 }
 
 void MyMain()
@@ -170,8 +169,9 @@ void MyMain()
   double weight;
   Analyzer_Nt16 *Histo;
   TH1D *tempHist;
-  THS[0] = new THStack("h1","Invariant Mass of Dimuon (Weighted)");
-  THS[1] = new THStack("h2","Invariant Mass of Dimuon (Unweighted)");
+  //TH1D *tempHist;
+  THS[0] = new THStack("h1","Invariant Mass of Dimuon (Weighted);Dimuon Mass;Events (per pb^{-1})");
+  THS[1] = new THStack("h2","Invariant Mass of Dimuon (Unweighted);Dimuon Mass;Events");
   THS[2] = new THStack("h3","d0");
   THS[3] = new THStack("h4","IsoR03SumPt");
   if (!Selector(Names,FileNames,sigma)) exit(0);
@@ -190,13 +190,17 @@ void MyMain()
       clog<<Names[i]<<" : Weight=sigma/Original Total Events="<<sigma[i]<<"/"<<OrgTotEvents<<"="<<weight<<endl;
       tree = (TTree*)gDirectory->Get("Muon");
       Histo = new Analyzer_Nt16(tree);
-      Histo->Loop();
+      Histo->Hist1D[0] = new TH1D("DM","Dimuons Mass",100, 200, 800 );
+      Histo->Hist1D[1] = new TH1D("VD","Vertex D0^2",100,0,0.03);
+      Histo->Hist1D[2] = new TH1D("Iso","MuonIsoR03SumPt",100, -2.001, 2.001 );
+      Long64_t Total_Passed_Events=Histo->Loop();
+      clog<<" Efficiency=Total_Passed_Events/Original Total Events="<<Total_Passed_Events<<"/"<<OrgTotEvents<<"="<<Total_Passed_Events/ (double) OrgTotEvents<<endl;
       Histo->Hist1D[0]->SetFillColor(ColorList[i%numColor]);
       Histo->Hist1D[1]->SetFillColor(ColorList[i%numColor]);
       Histo->Hist1D[2]->SetFillColor(ColorList[i%numColor]);
       Legends->AddEntry(Histo->Hist1D[0],Names[i],"F");
-      tempHist = new TH1D("DM","Dimuons Mass",100, 200, 800 );
-      *tempHist = weight*(*Histo->Hist1D[0]);
+      tempHist = (TH1D *) Histo->Hist1D[0]->Clone();
+      tempHist->Scale(weight);
       THS[0]->Add(tempHist);
       THS[1]->Add(Histo->Hist1D[0]);
       THS[2]->Add(Histo->Hist1D[1]);

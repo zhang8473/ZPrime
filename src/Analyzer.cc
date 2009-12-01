@@ -14,7 +14,7 @@
 //
 // Original Author:  Jinzhong Zhang
 //         Created:  Wed Sep  9 18:30:00 CEST 2009
-// $Id: Analyzer.cc,v 1.4 2009/10/21 16:45:57 zhangjin Exp $
+// $Id: Analyzer.cc,v 1.6 2009/10/22 15:27:38 zhangjin Exp $
 //
 //
 
@@ -51,8 +51,8 @@
 
 //ROOT
 #include "FWCore/ServiceRegistry/interface/Service.h"
-#include "PhysicsTools/UtilAlgos/interface/TFileService.h"
 #include "TTree.h"
+#include "TFile.h"
 
 //#include "TLorentzVector.h"
 
@@ -80,7 +80,9 @@ class Analyzer : public edm::EDAnalyzer {
       virtual void endJob() ;
 
       // ----------member data ---------------------------
-   //TTree
+   //TTree&TFile
+   TFile *file;
+   string FileName;
    TTree *fMuon_Tree,*fSummarization_Tree;
    unsigned int Total_Events;
    //HLT
@@ -118,9 +120,10 @@ class Analyzer : public edm::EDAnalyzer {
 Analyzer::Analyzer(const edm::ParameterSet& iConfig)
 {
    //now do what ever initialization is needed
-   Service<TFileService> fs;
-   fMuon_Tree = fs->make<TTree>("Muon","Muon");
-   fSummarization_Tree = fs->make<TTree>("Summerization","Summerization");
+   FileName = iConfig.getParameter<string>("FileName");
+   file=new TFile(FileName.c_str(),"RECREATE");
+   fMuon_Tree  = new TTree ("Muon","Muons") ;
+   fSummarization_Tree  = new TTree ("TotalEvents","Total_Events") ;
    vector< string > default_PVTags;
    default_PVTags.push_back("offlinePrimaryVerticesWithBS");
    default_PVTags.push_back("offlinePrimaryVertices");
@@ -445,6 +448,8 @@ Analyzer::endJob()
    //at the end of the job record the total events went through for calculating the weight number which is lum*cross*FilterEff/Total_Events_Number
    fSummarization_Tree->Branch("Total_Events",&Total_Events,"TotalEvents/i");
    fSummarization_Tree->Fill();
+   file->Write();
+   file->Close();
 }
 
 //define this as a plug-in

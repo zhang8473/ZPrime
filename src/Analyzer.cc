@@ -14,7 +14,7 @@
 //
 // Original Author:  Jinzhong Zhang
 //         Created:  Wed Sep  9 18:30:00 CEST 2009
-// $Id: Analyzer.cc,v 1.6 2009/10/22 15:27:38 zhangjin Exp $
+// $Id: Analyzer.cc,v 1.7 2009/12/01 10:28:53 zhangjin Exp $
 //
 //
 
@@ -61,7 +61,7 @@
 #define maxHLTnum 200
 #define maxFilterObjects 30
 #define maxKindsofPV 6
-
+#define MaxHLTObjDeviation 0.003 // the maximum deviation between pt and eta of reco objs and HLT objs to be accepted as a HLT objs
 //
 // class decleration
 //
@@ -80,31 +80,37 @@ class Analyzer : public edm::EDAnalyzer {
       virtual void endJob() ;
 
       // ----------member data ---------------------------
-   //TTree&TFile
-   TFile *file;
-   string FileName;
-   TTree *fMuon_Tree,*fSummarization_Tree;
-   unsigned int Total_Events;
-   //HLT
-   unsigned int HLTSize;
-   bool HLTacceptance[maxHLTnum],HLTNameSaved;
-   //HLTObjects
-   unsigned int number_Filters;
-   vector<double> *pt[maxFilterObjects],*eta[maxFilterObjects],*phi[maxFilterObjects];
-   vector<InputTag> fHLTFilterNames;
-   InputTag fTriggerResultsTag,fTriggerEventTag;
-   //PrimaryVertex
-   unsigned int number_kindsofPV;
-   vector<string> fPrimaryVerticesTag;
-   vector<double> *vx[maxKindsofPV],*vxError[maxKindsofPV],*vy[maxKindsofPV],*vyError[maxKindsofPV],*vz[maxKindsofPV],*vzError[maxKindsofPV];
-   //Generation Level Muon
-   vector<float> *Gen_pt,*Gen_eta,*Gen_phi,*AntiGen_pt,*AntiGen_eta,*AntiGen_phi;
-   //Muon
-   struct Stuff_Muon
-   {
-	unsigned int number;
-	float pt[maxMuon],eta[maxMuon],phi[maxMuon],Vertex[maxMuon][3],isoR03sumPt[maxMuon],isoR03emEt[maxMuon],isoR03hadEt[maxMuon],isoR03hoEt[maxMuon],isoR03nJets[maxMuon],isoR03nTracks[maxMuon],isoR05sumPt[maxMuon],isoR05emEt[maxMuon],isoR05hadEt[maxMuon],isoR05hoEt[maxMuon],isoR05nJets[maxMuon],isoR05nTracks[maxMuon],isoemVetoEt[maxMuon],isohadVetoEt[maxMuon],isohoVetoEt[maxMuon];
-   } muon,antimuon,*muonpointer;
+  //TTree&TFile
+  TFile *file;
+  string FileName;
+  TTree *fMuon_Tree,*fSummarization_Tree;
+  ULong64_t Total_Events;
+  //General Event Information
+  struct General_EvtInfo
+  {
+    ULong64_t RunNum,EventNum,LumiBlock;
+  } Info;
+  //HLT
+  unsigned int HLTSize;
+  Bool_t HLTacceptance[maxHLTnum],HLTNameSaved;
+  //HLTObjects
+  unsigned int number_Filters;
+  vector<Double_t> *HLTObj_pt[maxFilterObjects],*HLTObj_eta[maxFilterObjects],*HLTObj_phi[maxFilterObjects];
+  vector<InputTag> fHLTFilterNames;
+  InputTag fTriggerResultsTag,fTriggerEventTag;
+  //PrimaryVertex
+  unsigned int number_kindsofPV;
+  vector<string> fPrimaryVerticesTag;
+  vector<Double_t> *vx[maxKindsofPV],*vxError[maxKindsofPV],*vy[maxKindsofPV],*vyError[maxKindsofPV],*vz[maxKindsofPV],*vzError[maxKindsofPV];
+  //Generation Level Muon
+  vector<Float_t> *Gen_pt,*Gen_eta,*Gen_phi,*AntiGen_pt,*AntiGen_eta,*AntiGen_phi;
+  //Muon
+  struct Stuff_Muon
+  {
+    UInt_t number;
+    Float_t pt[maxMuon],eta[maxMuon],phi[maxMuon],Vertex[maxMuon][3],isoR03sumPt[maxMuon],isoR03emEt[maxMuon],isoR03hadEt[maxMuon],isoR03hoEt[maxMuon],isoR03nJets[maxMuon],isoR03nTracks[maxMuon],isoR05sumPt[maxMuon],isoR05emEt[maxMuon],isoR05hadEt[maxMuon],isoR05hoEt[maxMuon],isoR05nJets[maxMuon],isoR05nTracks[maxMuon],isoemVetoEt[maxMuon],isohadVetoEt[maxMuon],isohoVetoEt[maxMuon],normalizedChi2[maxMuon],STARecoChi2[maxMuon],TrkRecoChi2[maxMuon];
+    Bool_t isHLTObj[maxHLTnum][maxMuon];
+  } muon,antimuon,*muonpointer;
 };
 //
 // constants, enums and typedefs
@@ -162,9 +168,12 @@ Analyzer::~Analyzer()
 void
 Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 {	
-  unsigned int i,j,k,number_Keys=0;
+   unsigned int i,j,k,l,Num_HLTObjs[maxHLTnum];
    Total_Events++;
-   //int eventNum = iEvent.id().event();
+   //Event Information
+   Info.RunNum = iEvent.run();
+   Info.EventNum = iEvent.id().event();
+   Info.LumiBlock = iEvent.luminosityBlock();
    //HLT Information
    Handle<TriggerResults> hltTriggerResults;
    iEvent.getByLabel(fTriggerResultsTag,hltTriggerResults);
@@ -203,7 +212,7 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
    i=0;muon.number=0;antimuon.number=0;
    for ( reco::MuonCollection::const_iterator iter = muons.begin(); iter != muons.end() ; ++iter)
      { 
-       if (iter->isGlobalMuon()&&iter->pt()>20)
+       if (iter->isGlobalMuon())
 	 {
 	   if (iter->charge()==-1) 
 	     {
@@ -223,6 +232,35 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 	 }
        i++;
      }
+   if (!muon.number||!antimuon.number) return;//only keep the events which contains at least one muon and one antimuon
+   //HLT Objects
+   Handle<trigger::TriggerEvent> trgEvent;
+   iEvent.getByLabel(fTriggerEventTag,trgEvent);
+   if(trgEvent.isValid())
+     {
+       const trigger::TriggerObjectCollection& TOC = trgEvent->getObjects();
+       int Total_Filters = trgEvent->sizeFilters();
+       for( i =0; i < number_Filters;i++)
+	 {
+	   trigger::size_type pos_Filter = trgEvent->filterIndex(fHLTFilterNames[i]);
+	   if (pos_Filter < Total_Filters)
+	     {
+	       const trigger::Keys& KEYS(trgEvent->filterKeys(pos_Filter));
+	       Num_HLTObjs[i] = int(KEYS.size());
+	       for(j = 0; j < Num_HLTObjs[i]; j++)
+		 {
+		   const trigger::TriggerObject& TO = TOC[KEYS[j]];
+		   //printf("pt%f\teta%f\tphi%f\n",TO.pt(),TO.eta(),TO.phi());
+		   HLTObj_pt[i]->push_back(TO.pt());
+		   HLTObj_eta[i]->push_back(TO.eta());
+		   HLTObj_phi[i]->push_back(TO.phi());
+		 }
+	     }
+	   else printf("FilterName \"%s\" is not valid.\n",fHLTFilterNames[i].label().c_str());
+	 }
+     }
+   else printf("TriggerEventTag \"%s\" is not valid.",fTriggerEventTag.label().c_str());
+   //Save Muon (need HLT object information)
    muonpointer=&muon;
    for (k=0; k<2; k++)
      {
@@ -258,37 +296,18 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 	   muonpointer->isoemVetoEt[i]=iterMuon.isolationR03().emVetoEt;
 	   muonpointer->isohadVetoEt[i]=iterMuon.isolationR03().hadVetoEt;
 	   muonpointer->isohoVetoEt[i]=iterMuon.isolationR03().hoVetoEt;
+	   muonpointer->normalizedChi2[i]=iterMuon.globalTrack()->normalizedChi2();
+	   muonpointer->STARecoChi2[i]=iterMuon.combinedQuality().staRelChi2;
+	   muonpointer->TrkRecoChi2[i]=iterMuon.combinedQuality().trkRelChi2;
+	   for (j=0; j<number_Filters; j++)
+	     {
+	       muonpointer->isHLTObj[j][i]=false;
+	       for (l=0; l<Num_HLTObjs[j]; l++)
+		 if ((abs(muonpointer->eta[i]-(*HLTObj_eta[j])[l])<MaxHLTObjDeviation)&&(abs(muonpointer->phi[i]-(*HLTObj_phi[j])[l])<MaxHLTObjDeviation)) muonpointer->isHLTObj[j][i]=true;
+	     }
 	 }
         muonpointer=&antimuon;
      }
-   if (!muon.number||!antimuon.number) return;//only keep the events which contains at least one muon and one antimuon
-   //HLT Objects
-   Handle<trigger::TriggerEvent> trgEvent;
-   iEvent.getByLabel(fTriggerEventTag,trgEvent);
-   if(trgEvent.isValid())
-     {
-       const trigger::TriggerObjectCollection& TOC = trgEvent->getObjects();
-       int Total_Filters = trgEvent->sizeFilters();
-       for( i =0; i < number_Filters;i++)
-	 {
-	   trigger::size_type pos_Filter = trgEvent->filterIndex(fHLTFilterNames[i]);
-	   if (pos_Filter < Total_Filters)
-	     {
-	       const trigger::Keys& KEYS(trgEvent->filterKeys(pos_Filter));
-	       number_Keys = int(KEYS.size());
-	       for(j = 0; j < number_Keys; j++)
-		 {
-		   const trigger::TriggerObject& TO = TOC[KEYS[j]];
-		   //printf("pt%f\teta%f\tphi%f\n",TO.pt(),TO.eta(),TO.phi());
-		   pt[i]->push_back(TO.pt());
-		   eta[i]->push_back(TO.eta());
-		   phi[i]->push_back(TO.phi());
-		 }
-	     }
-	   else printf("FilterName \"%s\" is not valid.\n",fHLTFilterNames[i].label().c_str());
-	 }
-     }
-   else printf("TriggerEventTag \"%s\" is not valid.",fTriggerEventTag.label().c_str());
    //Primary Vertex
    for (i=0; i < number_kindsofPV; i++)
      {
@@ -315,14 +334,12 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 	      Gen_pt->push_back(genPar->pt());
 	      Gen_eta->push_back(genPar->eta());
 	      Gen_phi->push_back(genPar->phi());
-	      //printf("Got Muon, pt: %f;eta: %f;phi: %f;",genPar->pt(),genPar->eta(),genPar->phi());
 	    }
 	  if (genPar->pdgId()==-13)
 	    {
 	      AntiGen_pt->push_back(genPar->pt());
 	      AntiGen_eta->push_back(genPar->eta());
 	      AntiGen_phi->push_back(genPar->phi());
-	      //printf("Got AntiMuon, pt: %f;eta: %f;phi: %f;\n",genPar->pt(),genPar->eta(),genPar->phi());
 	    }
 	 }
      }
@@ -331,9 +348,9 @@ Analyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
    //clear all vectors
    for( i =0; i < number_Filters;i++)
      {
-       pt[i]->clear();
-       eta[i]->clear();
-       phi[i]->clear();
+       HLTObj_pt[i]->clear();
+       HLTObj_eta[i]->clear();
+       HLTObj_phi[i]->clear();
      }
    for (i=0; i < number_kindsofPV; i++)
      {
@@ -357,27 +374,15 @@ Analyzer::beginJob()
   //at the beginning of event, initialize tree variables
   fMuon_Tree->SetCircular(500000);//the max events in a single root file
   Total_Events=0;HLTNameSaved = false;
-  //HLT Objects
-  unsigned int i;  
-  string HLTTriggerNames;
-  for( i =0; i < number_Filters;i++)
-    {
-      pt[i]=new vector<double>();
-      eta[i]=new vector<double>();
-      phi[i]=new vector<double>();
-      HLTTriggerNames=fHLTFilterNames[i].label()+"_pt";
-      fMuon_Tree->Branch(HLTTriggerNames.c_str(),&pt[i]);
-      HLTTriggerNames=fHLTFilterNames[i].label()+"_eta";
-      fMuon_Tree->Branch(HLTTriggerNames.c_str(),&eta[i]);
-      HLTTriggerNames=fHLTFilterNames[i].label()+"_phi";
-      fMuon_Tree->Branch(HLTTriggerNames.c_str(),&phi[i]);
-      }
+  unsigned int i;
+  //General Run Information
+  fMuon_Tree->Branch("Event_Info",&Info.RunNum,"RunNum/l:EventNum:LumiBlock");
   //Primary Vertices
   for( i =0; i < number_kindsofPV;i++)
     {
-      vx[i] = new vector<double>();  vxError[i] = new vector<double>();
-      vy[i] = new vector<double>();  vyError[i] = new vector<double>();
-      vz[i] = new vector<double>();  vzError[i] = new vector<double>();
+      vx[i] = new vector<Double_t>();  vxError[i] = new vector<Double_t>();
+      vy[i] = new vector<Double_t>();  vyError[i] = new vector<Double_t>();
+      vz[i] = new vector<Double_t>();  vzError[i] = new vector<Double_t>();
       fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_X").c_str(),&vx[i]);
       fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_eX").c_str(),&vxError[i]);
       fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_Y").c_str(),&vy[i]);
@@ -386,15 +391,15 @@ Analyzer::beginJob()
       fMuon_Tree->Branch((fPrimaryVerticesTag[i]+"_eZ").c_str(),&vzError[i]);
     }
   //Generation Level Muons
-  Gen_pt = new vector<float>();
-  Gen_eta = new vector<float>();
-  Gen_phi = new vector<float>();
+  Gen_pt = new vector<Float_t>();
+  Gen_eta = new vector<Float_t>();
+  Gen_phi = new vector<Float_t>();
   fMuon_Tree->Branch("GenMuon_pt",&Gen_pt);
   fMuon_Tree->Branch("GenMuon_eta",&Gen_eta);
   fMuon_Tree->Branch("GenMuon_phi",&Gen_phi);
-  AntiGen_pt = new vector<float>();
-  AntiGen_eta = new vector<float>();
-  AntiGen_phi = new vector<float>();
+  AntiGen_pt = new vector<Float_t>();
+  AntiGen_eta = new vector<Float_t>();
+  AntiGen_phi = new vector<Float_t>();
   fMuon_Tree->Branch("GenAntiMuon_pt",&AntiGen_pt);
   fMuon_Tree->Branch("GenAntiMuon_eta",&AntiGen_eta);
   fMuon_Tree->Branch("GenAntiMuon_phi",&AntiGen_phi);
@@ -419,6 +424,9 @@ Analyzer::beginJob()
   fMuon_Tree->Branch("Muon_isoemVetoEt",muon.isoemVetoEt,"MisoemVetoEt[Mnum]/F");
   fMuon_Tree->Branch("Muon_isohadVetoEt",muon.isohadVetoEt,"MisohadVetoEt[Mnum]/F");
   fMuon_Tree->Branch("Muon_isohoVetoEt",muon.isohoVetoEt,"MisohoVetoEt[Mnum]/F");
+  fMuon_Tree->Branch("Muon_normalizedChi2",muon.normalizedChi2,"MnormalizedChi2[Mnum]/F");
+  fMuon_Tree->Branch("Muon_STARecoChi2",muon.STARecoChi2,"MSTARecoChi2[Mnum]/F");
+  fMuon_Tree->Branch("Muon_TrkRecoChi2",muon.TrkRecoChi2,"MTrkRecoChi2[Mnum]/F");
   fMuon_Tree->Branch("AntiMuon_size",&antimuon.number,"Anum/i");
   fMuon_Tree->Branch("AntiMuon_pt",antimuon.pt,"Apt[Anum]/F");
   fMuon_Tree->Branch("AntiMuon_eta",antimuon.eta,"Aeta[Anum]/F");
@@ -439,6 +447,21 @@ Analyzer::beginJob()
   fMuon_Tree->Branch("AntiMuon_isoemVetoEt",antimuon.isoemVetoEt,"AisoemVetoEt[Anum]/F");
   fMuon_Tree->Branch("AntiMuon_isohadVetoEt",antimuon.isohadVetoEt,"AisohadVetoEt[Anum]/F");
   fMuon_Tree->Branch("AntiMuon_isohoVetoEt",antimuon.isohoVetoEt,"AisohoVetoEt[Anum]/F");
+  fMuon_Tree->Branch("AntiMuon_normalizedChi2",muon.normalizedChi2,"AnormalizedChi2[Mnum]/F");
+  fMuon_Tree->Branch("AntiMuon_STARecoChi2",antimuon.STARecoChi2,"ASTARecoChi2[Mnum]/F");
+  fMuon_Tree->Branch("AntiMuon_TrkRecoChi2",antimuon.TrkRecoChi2,"ATrkRecoChi2[Mnum]/F");
+  //HLT Objects
+  for( i =0; i < number_Filters;i++)
+    {
+      HLTObj_pt[i]=new vector<Double_t>();
+      HLTObj_eta[i]=new vector<Double_t>();
+      HLTObj_phi[i]=new vector<Double_t>();
+      fMuon_Tree->Branch((fHLTFilterNames[i].label()+"_pt").c_str(),&HLTObj_pt[i]);
+      fMuon_Tree->Branch((fHLTFilterNames[i].label()+"_eta").c_str(),&HLTObj_eta[i]);
+      fMuon_Tree->Branch((fHLTFilterNames[i].label()+"_phi").c_str(),&HLTObj_phi[i]);
+      fMuon_Tree->Branch(("Muon_Is"+fHLTFilterNames[i].label()+"Obj").c_str(),&muon.isHLTObj[i],("Mis"+fHLTFilterNames[i].label()+"Obj[Mnum]/O").c_str());
+      fMuon_Tree->Branch(("AntiMuon_Is"+fHLTFilterNames[i].label()+"Obj").c_str(),&antimuon.isHLTObj[i],("Ais"+fHLTFilterNames[i].label()+"Obj[Mnum]/O").c_str());
+    }
 }
 
 // ------------ method called once each job just after ending the event loop  ------------
@@ -446,7 +469,7 @@ void
 Analyzer::endJob()
 {
    //at the end of the job record the total events went through for calculating the weight number which is lum*cross*FilterEff/Total_Events_Number
-   fSummarization_Tree->Branch("Total_Events",&Total_Events,"TotalEvents/i");
+   fSummarization_Tree->Branch("Total_Events",&Total_Events,"TotalEvents/l");
    fSummarization_Tree->Fill();
    file->Write();
    file->Close();

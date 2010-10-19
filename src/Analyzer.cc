@@ -1,7 +1,7 @@
 // -*- C++ -*-
 
 // Package:    Analyzer
-// Class:      Analyzer
+// Clas:      Analyzer
 // 
 /**\class Analyzer Analyzer.cc Analyzer/Analyzer/src/Analyzer.cc
 
@@ -13,10 +13,11 @@
 //
 // Original Author:  Jinzhong Zhang
 //         Created:  Wed Sep  9 18:30:00 CEST 2009
-// $Id: Analyzer.cc,v 1.8 2010/05/14 16:44:01 zhangjin Exp $
+// $Id: Analyzer.cc,v 1.9 2010/10/09 00:16:12 zhangjin Exp $
 //
 
 #include "../interface/Analyzer.h"
+#define Muon_Mass 0.105658367
 
 using namespace edm;
 using namespace std;
@@ -59,22 +60,32 @@ using namespace reco;
 bool
 DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
   Summarization.Total_Events++;
-  ClearVecs();
   //Set Muons Handle
   Handle<reco::MuonCollection> Muon;
   event.getByLabel("muons", Muon);
   if (!Muon.isValid()) return false;
   reco::MuonCollection const & muons = *Muon;
   vector<reco::MuonCollection::const_iterator> MuonQueue;
-  bool OneMuonPtPassedThreshold=false;
   for ( reco::MuonCollection::const_iterator iter = muons.begin(); iter != muons.end() ; ++iter)
-    if (iter->isTrackerMuon()||iter->isGlobalMuon())
-      if (iter->pt()>MuonPtSelection) {
-	MuonQueue.push_back(iter);
-	if (iter->pt()>MuonHighestPtSelection) OneMuonPtPassedThreshold=true;
+    if (iter->isTrackerMuon()||iter->isGlobalMuon()) if (iter->pt()>MuonPtCut) MuonQueue.push_back(iter);
+  Bool_t OneInvarMassPassCut=false;
+  if (MuonQueue.size()>=2) {
+    TLorentzVector P1,P2;
+    for (vector<reco::MuonCollection::const_iterator>::iterator iter_queue=MuonQueue.begin();iter_queue!=MuonQueue.end()-1; ++iter_queue )
+      for (vector<reco::MuonCollection::const_iterator>::iterator iter_queue2=iter_queue+1;iter_queue2!=MuonQueue.end(); ++iter_queue2 ) {
+	P1.SetPtEtaPhiM((*iter_queue)->pt(),(*iter_queue)->eta(),(*iter_queue)->phi(),Muon_Mass);
+	P2.SetPtEtaPhiM((*iter_queue2)->pt(),(*iter_queue2)->eta(),(*iter_queue2)->phi(),Muon_Mass);
+	if ( (P1+P2).M()>DiMuonInvarMassCut ) {
+	  OneInvarMassPassCut=true;
+	  iter_queue=MuonQueue.end()-2;
+	  iter_queue2=MuonQueue.end()-1;
+	}
       }
-  
+  }
+  else return false;
+
 #ifdef HepMCGenParticle
+  ClearVecs_HepMC();
   Handle<edm::HepMCProduct> HepMCH;
   event.getByLabel(HepMCTag, HepMCH);
   HepMC::GenEvent HepGenEvent(*(HepMCH->GetEvent()));
@@ -85,7 +96,7 @@ DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
     if (abs((*GenParticle_iter)->pdg_id())==13) { 
       HepMC::GenVertex *thisVtx=(*GenParticle_iter)->production_vertex();
       if (thisVtx) for (HepMC::GenVertex::particles_in_const_iterator pgenD = thisVtx->particles_in_const_begin(); pgenD != thisVtx->particles_in_const_end(); ++pgenD)
-	if ((*pgenD)->pdg_id()==32||(*pgenD)->pdg_id()==22||(*pgenD)->pdg_id()==23) {//if the parent particle is Z, gamma* or Z' record
+	if ((*pgenD)->pdg_id()==32||(*pgenD)->pdg_id()==23) {//if the parent particle is Z or Z'
 	  vector<HepMC::GenParticle *>::iterator ParToHep_iter=find(ParToHep.begin(),ParToHep.end(),*pgenD);
 	  if (ParToHep_iter==ParToHep.end()) {RecordHepMC((*pgenD))}
 	  if ((*GenParticle_iter)->pdg_id()==13) 
@@ -109,7 +120,7 @@ DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
 	  RecordHepMC((*GenParticle_iter))
 	}
     }//search for Z'->MuMu in MonteCarlo
-  if ((MuonQueue.size()<2||!OneMuonPtPassedThreshold)&&((!num_Gen_Zp_Mu)&&(!num_Gen_Zp_AntiMu))&&((!num_Gen_Z_Mu)&&(!num_Gen_Z_AntiMu))) return false;
+  if ( !OneInvarMassPassCut && (!num_Gen_Zp_Mu)&&(!num_Gen_Zp_AntiMu)&&(!num_Gen_Z_Mu)&&(!num_Gen_Z_AntiMu) ) return false;
   Info.num_ZpMuMuInMC=num_Gen_Zp_Mu<num_Gen_Zp_AntiMu?num_Gen_Zp_Mu:num_Gen_Zp_AntiMu;
   Info.num_ZMuMuInMC=num_Gen_Z_Mu<num_Gen_Z_AntiMu?num_Gen_Z_Mu:num_Gen_Z_AntiMu;
   for (unsigned int i=0;i<4;i++)
@@ -127,11 +138,12 @@ DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
   }
   if (GenParticle_iter == HepGenEvent.particles_end()) {ReportError(7,"No HepMC(Core) Vertex Information")}
 #else
+  if (!OneInvarMassPassCut) return false;
 #endif
-  if (MuonQueue.size()<2||!OneMuonPtPassedThreshold) return false;
+  ClearVecs_RECO();
 
-  for (vector<reco::MuonCollection::const_iterator>::iterator iter_queue=MuonQueue.begin();iter_queue!=MuonQueue.end(); ++iter_queue )
-    for (vector<reco::MuonCollection::const_iterator>::iterator iter_queue2=iter_queue;iter_queue2!=MuonQueue.end(); ++iter_queue2 )
+  for (vector<reco::MuonCollection::const_iterator>::iterator iter_queue=MuonQueue.begin();iter_queue!=MuonQueue.end()-1; ++iter_queue )
+    for (vector<reco::MuonCollection::const_iterator>::iterator iter_queue2=iter_queue+1;iter_queue2!=MuonQueue.end(); ++iter_queue2 )
       if ((*iter_queue)->pt()<(*iter_queue2)->pt()) {
 	reco::MuonCollection::const_iterator temp=*iter_queue2;
 	*iter_queue2=*iter_queue;
@@ -161,25 +173,28 @@ DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
   Handle<TriggerResults> hltTriggerResults;
   event.getByLabel(TriggerResultsTag,hltTriggerResults);
   if (hltTriggerResults.isValid()) {
-    if (FirstEntry) {
-      string HLTTriggerNames;
-      const TriggerNames &HLTNames = event.triggerNames(*hltTriggerResults);
-      HLTSize = hltTriggerResults->size();
-      if (HLTSize>maxHLTnum) throw cms::Exception("You need to increase the constant maxHLTnum.\n");
-      HLTTriggerNames=HLTNames.triggerName(0)+"/O:";
-      unsigned int i=1;
-      for (; i < HLTSize-1; i++)
-	HLTTriggerNames+=HLTNames.triggerName(i)+":";
-      HLTTriggerNames+=HLTNames.triggerName(i);
-      Muons_Tree->Branch("HLTAcceptance",HLTacceptance,HLTTriggerNames.c_str());
+    const TriggerNames &HLTNames = event.triggerNames(*hltTriggerResults);
+    UInt_t HLTSize = hltTriggerResults->size();
+    Bool_t HLTScopeChange=false;
+    if (HLTSize!=HLTNamesSet->size()) HLTScopeChange=true;
+    else {
+      for (UInt_t i=0;i<HLTSize;i++)
+	if ((*HLTNamesSet)[i].size()!=HLTNames.triggerName(i).size()) {HLTScopeChange=true;break;}
+	else if (memcmp((*HLTNamesSet)[i].c_str(),HLTNames.triggerName(i).c_str(),(*HLTNamesSet)[i].size())!=0) {HLTScopeChange=true;break;}
     }
-    for (unsigned int i = 0 ; i < HLTSize ; i++) 
-      HLTacceptance[i]=hltTriggerResults->accept(i);
+    if (HLTScopeChange) {
+      if (HLTNamesSet->size()!=0) {Summarization.Total_Events--;Summarization_Tree->Fill();}
+      Info.First_Run=Info.RUN;Info.First_Event=Info.EVENT;
+      ClearSummarization();Summarization.Total_Events++;
+      HLTNamesSet->clear();
+      for (UInt_t i=0;i<HLTSize;i++)
+	HLTNamesSet->push_back(HLTNames.triggerName(i));
+    }
+    for (UInt_t i=0; i < HLTSize; i++)
+      HLTacceptance->push_back(hltTriggerResults->accept(i));
   }
-  else if (HLTSize>0) {
+  else if (HLTNamesSet->size()>0) {
     ReportError(8,"Invalid TriggerResultsTag: "<<TriggerResultsTag.label())
-    for (unsigned int i = 0 ; i < HLTSize ; i++) 
-      HLTacceptance[i]=0;
   }
   
   //HLT Objects
@@ -258,7 +273,6 @@ DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
   for (vector<reco::MuonCollection::const_iterator>::iterator iter_queue=MuonQueue.begin();iter_queue!=MuonQueue.end(); ++iter_queue ) {
     //muon loop begin
     reco::MuonCollection::const_iterator iter=*iter_queue;
-    //muon basic information (pt,eta,phi,charge)
     pt->push_back(iter->pt());
     eta->push_back(iter->eta());
     phi->push_back(iter->phi());
@@ -293,7 +307,7 @@ DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
       if (chamberMatch->segmentMatches.empty()) continue;
       Byte_t detectorIdx=0;
       if (chamberMatch->detector()==MuonSubdetId::CSC) detectorIdx=1;
-      Byte_t SavePostion=(eta->size()-1)*8+detectorIdx*4+chamberMatch->station()-1;
+      Byte_t SavePostion=DXTrackToSegment->size()+detectorIdx*4+chamberMatch->station()-9;
       for( std::vector<MuonSegmentMatch>::const_iterator segmentMatch = chamberMatch->segmentMatches.begin();segmentMatch != chamberMatch->segmentMatches.end(); segmentMatch++ ) {
 	if (!segmentMatch->isMask(MuonSegmentMatch::BestInStationByDR)) continue;
 	(*IsSegmentBelongsToTrackByDR)[SavePostion]=segmentMatch->isMask(MuonSegmentMatch::BelongsToTrackByDR);
@@ -482,22 +496,29 @@ DiMuonSelector::filter(edm::Event& event, const edm::EventSetup& iSetup) {
       TrkParticles_pdgId->push_back(0);
       TrkParticles_charge->push_back(-100.0);
       SharedHitsRatio->push_back(-100.0);
+      MCMatchChi2->push_back(-100.0);
     }
 #endif
   }//muon loop end
-
   //DiMuonInvariantMass
-#define Muon_Mass 0.105658367
-  TLorentzVector P1,P2;
+  TLorentzVector P1,P2,Pc;
   unsigned int num_muons=pt->size();
   for (unsigned int Mu1=0; Mu1<num_muons; Mu1++)
     for (unsigned int Mu2=Mu1+1; Mu2<num_muons; Mu2++) {
       P1.SetPtEtaPhiM((*pt)[Mu1],(*eta)[Mu1],(*phi)[Mu1],Muon_Mass);
       P2.SetPtEtaPhiM((*pt)[Mu2],(*eta)[Mu2],(*phi)[Mu2],Muon_Mass);
-      DiMuonInvariantMass->push_back((P1+P2).M());
+      Float_t  InvarMass=(P1+P2).M();
+      DiMuonInvariantMass->push_back(InvarMass);
+      Pc=P1+P2;
+      Float_t Gamma=Pc.Gamma();
+      TLorentzRotation l;
+      l.Boost(Pc.Px()/Gamma/InvarMass,Pc.Py()/Gamma/InvarMass,Pc.Pz()/Gamma/InvarMass);
+      l.Invert();
+      P1.Transform(l);
+      CosThetaStar->push_back(P1.CosTheta());
+      if (InvarMass>DiMuonInvarMassCut) OneInvarMassPassCut=true;
     }
   Muons_Tree->Fill();
-  FirstEntry=false;
   return true;
 }
 #ifdef TrackingParticles
@@ -566,89 +587,20 @@ void DiMuonSelector::HepMCParentTree(HepMC::GenParticle *genPar) {
 }
 #endif
 
-void DiMuonSelector::ClearVecs() {
-  pt->clear(); eta->clear();  phi->clear();
-  chargeMinus->clear();  isGlobalMu->clear();  isTrackerMu->clear();
-  Vertex_x->clear();  Vertex_y->clear();  Vertex_z->clear();
-  isoR03sumPt->clear();  isoR03emEt->clear();  isoR03hadEt->clear();
-  isoR03hoEt->clear();  isoR03nJets->clear();  isoR03nTracks->clear();
-  isoR05sumPt->clear();  isoR05emEt->clear();  isoR05hadEt->clear();
-  isoR05hoEt->clear();  isoR05nJets->clear();  isoR05nTracks->clear();
-  isoemVetoEt->clear();  isohadVetoEt->clear();  isohoVetoEt->clear();
-  TrkKink->clear();  GlbKink->clear();  TrkRelChi2->clear();
-  CaloE_emMax->clear();  CaloE_emS9->clear();  CaloE_emS25->clear();
-  CaloE_hadMax->clear();  CaloE_hadS9->clear();
-  Calo_emPos_R->clear();  Calo_emPos_eta->clear();  Calo_emPos_phi->clear();
-  Calo_hadPos_R->clear();  Calo_hadPos_eta->clear();  Calo_hadPos_phi->clear();
-  DiMuonInvariantMass->clear();
-  dEdx->clear();  dEdxError->clear();
-  dEdx_numberOfSaturatedMeasurements->clear();
-  dEdx_numberOfMeasurements->clear();
-  InnerTrack_nValidTrackerHits->clear();
-  InnerTrack_nValidPixelHits->clear();  
-  InnerTrack_nLostTrackerHits->clear();
-  InnerTrack_nLostPixelHits->clear(); 
-  InnerTrack_chi2->clear(); InnerTrack_ndof->clear();
-  GlobalTrack_chi2->clear(); GlobalTrack_ndof->clear();
-
-  //HLT Objects
-  for( unsigned int i =0; i < num_HLTsSaveObjs;i++) {
-    HLTObj_pt[i]->clear();
-    HLTObj_eta[i]->clear();
-    HLTObj_phi[i]->clear();
-    isHLTObj[i]->clear();
-  }
-
-  TrackDistToChamberEdge->clear();
-  TrackDistToChamberEdgeErr->clear();
-  DXTrackToSegment->clear();
-  DYTrackToSegment->clear();
-  DXErrTrackToSegment->clear();
-  DYErrTrackToSegment->clear();
-  DRTrackToSegment->clear();
-  DRErrTrackToSegment->clear();
-  IsSegmentBelongsToTrackByDR->clear();
-  IsSegmentBelongsToTrackByCleaning->clear();
-  NumberOfHitsInSegment->clear();
-  StationMask->clear();RequiredStationMask->clear();
-
-  vx->clear(); vy->clear(); vz->clear();
-  vxError->clear(); vyError->clear(); vzError->clear();
-
-  for (unsigned int whichcut=0;whichcut<num_Cuts;whichcut++)
-    SelectorPassed[whichcut]->clear(); 
-  MySelector->clear();
-
-#ifdef HepMCGenParticle
-  Gen_pt->clear();  Gen_eta->clear();  Gen_phi->clear(); Gen_pdgId->clear();
-  Gen_vx->clear();  Gen_vy->clear();  Gen_vz->clear();  Gen_vt->clear();
-  IsParInHep->clear(); ParToHep.clear();
-#endif
-  
-#ifdef TrackingParticles
-  TrkParticles_pt->clear();  TrkParticles_eta->clear(); TrkParticles_phi->clear();
-  TrkParticles_pdgId->clear(); TrkParticles_charge->clear(); 
-  SharedHitsRatio->clear(); MCMatchChi2->clear(); ParToSim.clear(); 
-  DChains->clear(); theSameWithMuon->clear();
-#endif
-}
-
 #define MakeVecBranch(Name,Var,Type) Var=new vector<Type>();Muons_Tree->Branch(Name,&Var)
 
 DiMuonSelector::DiMuonSelector(const edm::ParameterSet& pset) {
 //---- Get the input parameters
   FileName = pset.getParameter<string>("FileName");
-  Summarization.CrossSection = pset.getParameter<double>("CrossSection");
   maxChamberDist = pset.getUntrackedParameter<double>("maxChamberDist",-3.);
   maxChamberDistPull = pset.getUntrackedParameter<double>("maxChamberDistPull",-3.);
-  MuonPtSelection = pset.getUntrackedParameter<double>("MuonPtSelection",15.);
-  MuonHighestPtSelection = pset.getUntrackedParameter<double>("MuonHighestPtSelection",40.);
+  MuonPtCut = pset.getUntrackedParameter<double>("MuonPtCut",10.);
+  DiMuonInvarMassCut = pset.getUntrackedParameter<double>("DiMuonInvarMassCut",40.);
   vector<string> Cuts;
   Cuts = pset.getUntrackedParameter< vector<string> >("StandardMuonCuts",Cuts);//default is empty
   string MuonArbitrationTypeStr;
   MuonArbitrationTypeStr = pset.getUntrackedParameter<string>("MuonArbitrationType","SegmentArbitration");
   MuonArbitrationType=MuonArbitrationTypeFromString(MuonArbitrationTypeStr.c_str());
-  minTrackHits = pset.getUntrackedParameter<uint>("minTrackHits",3);
   PrimaryVerticesTag = pset.getUntrackedParameter<string>("PrimaryVertices","offlinePrimaryVerticesWithBS");//"offlinePrimaryVerticesWithBS": Primary vertex reconstructed using the tracks taken from the generalTracks collection, and imposing the offline beam spot as a constraint in the fit of the vertex position. Another possible tag is "offlinePrimaryVertices", which is Primary vertex reconstructed using the tracks taken from the generalTracks collection
   const InputTag tracksTag_default("generalTracks");
   tracksTag = pset.getUntrackedParameter<InputTag>("tracksTag",tracksTag_default);
@@ -670,11 +622,12 @@ DiMuonSelector::DiMuonSelector(const edm::ParameterSet& pset) {
   ErrorMsg_Tree->SetCircular(500000);
 //Build Branches
   //General event information
+  Info.First_Run=0;Info.First_Event=0;
 #ifdef HepMCGenParticle
   HepMCTag = pset.getUntrackedParameter<string>("HepMCTag","generator");
-  Muons_Tree->Branch("Event_Info",&Info.RUN,"RUN/l:EVENT:LumiBlock:ORBIT:BunchCrossing:num_ZpMuMuInMC/b:num_ZMuMuInMC:isRealData/O");
+  Muons_Tree->Branch("Event_Info",&Info.RUN,"RUN/l:EVENT:LumiBlock:ORBIT:BunchCrossing:First_Run:First_Event:num_ZpMuMuInMC/b:num_ZMuMuInMC:isRealData/O");
 #else
-  Muons_Tree->Branch("Event_Info",&Info.RUN,"RUN/l:EVENT:LumiBlock:ORBIT:BunchCrossing:isRealData/O");
+  Muons_Tree->Branch("Event_Info",&Info.RUN,"RUN/l:EVENT:LumiBlock:ORBIT:BunchCrossing:First_Run:First_Event:isRealData/O");
 #endif
   //Muon Information
   MakeVecBranch("pt",pt,Float_t);  MakeVecBranch("eta",eta,Float_t);  MakeVecBranch("phi",phi,Float_t);
@@ -691,6 +644,7 @@ DiMuonSelector::DiMuonSelector(const edm::ParameterSet& pset) {
   MakeVecBranch("Calo_emPos_R",Calo_emPos_R,Float_t);  MakeVecBranch("Calo_emPos_eta",Calo_emPos_eta,Float_t);  MakeVecBranch("Calo_emPos_phi",Calo_emPos_phi,Float_t);
   MakeVecBranch("Calo_hadPos_R",Calo_hadPos_R,Float_t);  MakeVecBranch("Calo_hadPos_eta",Calo_hadPos_eta,Float_t);  MakeVecBranch("Calo_hadPos_phi",Calo_hadPos_phi,Float_t);
   MakeVecBranch("DiMuonInvariantMass",DiMuonInvariantMass,Float_t);
+  MakeVecBranch("CosThetaStar",CosThetaStar,Float_t);
   //InnerTrack
   MakeVecBranch("dEdx",dEdx,Float_t);  MakeVecBranch("dEdxError",dEdxError,Float_t);
   MakeVecBranch("dEdx_numberOfSaturatedMeasurements",dEdx_numberOfSaturatedMeasurements,Int_t);
@@ -715,7 +669,8 @@ DiMuonSelector::DiMuonSelector(const edm::ParameterSet& pset) {
   MakeVecBranch("IsSegmentBelongsToTrackByCleaning",IsSegmentBelongsToTrackByCleaning,Bool_t);
   MakeVecBranch("NumberOfHitsInSegment",NumberOfHitsInSegment,UInt_t);
   MakeVecBranch("StationMask",StationMask,UInt_t);MakeVecBranch("RequiredStationMask",RequiredStationMask,UInt_t); 
-  //HLT Objects
+  //HLT
+  MakeVecBranch("HLTacceptance",HLTacceptance,Bool_t);
   for( unsigned int i =0; i < num_HLTsSaveObjs;i++) {
     MakeVecBranch((HLTFilterNames[i].label()+"_pt").c_str(),HLTObj_pt[i],Float_t);
     MakeVecBranch((HLTFilterNames[i].label()+"_eta").c_str(),HLTObj_eta[i],Float_t);
@@ -745,6 +700,7 @@ DiMuonSelector::DiMuonSelector(const edm::ParameterSet& pset) {
 
 #ifdef TrackingParticles  
   //Simulated Tracks
+  minTrackHits = pset.getUntrackedParameter<uint>("minTrackHits",3);
   MakeVecBranch("TrkParticles_pt",TrkParticles_pt,Float_t);  MakeVecBranch("TrkParticles_eta",TrkParticles_eta,Float_t);  MakeVecBranch("TrkParticles_phi",TrkParticles_phi,Float_t);
   MakeVecBranch("TrkParticles_pdgId",TrkParticles_pdgId,Int_t); MakeVecBranch("TrkParticles_charge",TrkParticles_charge,Int_t);
   MakeVecBranch("SharedHitsRatio",SharedHitsRatio,Double_t); MakeVecBranch("MCMatchChi2",MCMatchChi2,Double_t); 
@@ -754,9 +710,11 @@ DiMuonSelector::DiMuonSelector(const edm::ParameterSet& pset) {
 
   //Summary
   ErrorMsg_Tree->Branch("ErrorMsg",&Error.ErrorCode,"ErrorCode/b:RunNum/l:EventNum");
-  Summarization_Tree->Branch("Summarization",&Summarization.Total_Events,"Total_Events/l:Total_TrackerMuons:Total_GlobalMuon:Total_GlobalnotTrackerMuon:CrossSection/D");
-  Summarization.Total_Events=0;Summarization.Total_TrackerMuons=0;Summarization.Total_GlobalMuon=0;Summarization.Total_GlobalnotTrackerMuon=0;
-  FirstEntry=true;HLTSize=0;
+  Summarization_Tree->Branch("Summarization",&Summarization.Total_Events,"Total_Events/l:Total_TrackerMuons:Total_GlobalMuon:Total_GlobalnotTrackerMuon:First_Run:First_Event:CrossSection/D");
+  HLTNamesSet = new vector<string>();
+  Summarization_Tree->Branch("HLTNamesSet",&HLTNamesSet);
+  Summarization.CrossSection = pset.getParameter<double>("CrossSection");
+  ClearSummarization();
 }
 
 Muon::ArbitrationType DiMuonSelector::MuonArbitrationTypeFromString( const std::string &label ) {
@@ -781,84 +739,81 @@ Muon::ArbitrationType DiMuonSelector::MuonArbitrationTypeFromString( const std::
   return value;
 }
 
+#ifdef HepMCGenParticle
+void DiMuonSelector::ClearVecs_HepMC() {
+  Gen_pt->clear();  Gen_eta->clear();  Gen_phi->clear(); Gen_pdgId->clear();
+  Gen_vx->clear();  Gen_vy->clear();  Gen_vz->clear();  Gen_vt->clear();
+  IsParInHep->clear(); ParToHep.clear();
+}
+#endif
+
+void DiMuonSelector::ClearVecs_RECO() {
+  pt->clear(); eta->clear();  phi->clear();
+  chargeMinus->clear();  isGlobalMu->clear();  isTrackerMu->clear();
+  Vertex_x->clear();  Vertex_y->clear();  Vertex_z->clear();
+  isoR03sumPt->clear();  isoR03emEt->clear();  isoR03hadEt->clear();
+  isoR03hoEt->clear();  isoR03nJets->clear();  isoR03nTracks->clear();
+  isoR05sumPt->clear();  isoR05emEt->clear();  isoR05hadEt->clear();
+  isoR05hoEt->clear();  isoR05nJets->clear();  isoR05nTracks->clear();
+  isoemVetoEt->clear();  isohadVetoEt->clear();  isohoVetoEt->clear();
+  TrkKink->clear();  GlbKink->clear();  TrkRelChi2->clear();
+  CaloE_emMax->clear();  CaloE_emS9->clear();  CaloE_emS25->clear();
+  CaloE_hadMax->clear();  CaloE_hadS9->clear();
+  Calo_emPos_R->clear();  Calo_emPos_eta->clear();  Calo_emPos_phi->clear();
+  Calo_hadPos_R->clear();  Calo_hadPos_eta->clear();  Calo_hadPos_phi->clear();
+  DiMuonInvariantMass->clear();  CosThetaStar->clear();
+  dEdx->clear();  dEdxError->clear();
+  dEdx_numberOfSaturatedMeasurements->clear();
+  dEdx_numberOfMeasurements->clear();
+  InnerTrack_nValidTrackerHits->clear();
+  InnerTrack_nValidPixelHits->clear();  
+  InnerTrack_nLostTrackerHits->clear();
+  InnerTrack_nLostPixelHits->clear(); 
+  InnerTrack_chi2->clear(); InnerTrack_ndof->clear();
+  GlobalTrack_chi2->clear(); GlobalTrack_ndof->clear();
+
+  //HLT
+  HLTacceptance->clear();
+  for( unsigned int i =0; i < num_HLTsSaveObjs;i++) {
+    HLTObj_pt[i]->clear();
+    HLTObj_eta[i]->clear();
+    HLTObj_phi[i]->clear();
+    isHLTObj[i]->clear();
+  }
+
+  TrackDistToChamberEdge->clear();
+  TrackDistToChamberEdgeErr->clear();
+  DXTrackToSegment->clear();
+  DYTrackToSegment->clear();
+  DXErrTrackToSegment->clear();
+  DYErrTrackToSegment->clear();
+  DRTrackToSegment->clear();
+  DRErrTrackToSegment->clear();
+  IsSegmentBelongsToTrackByDR->clear();
+  IsSegmentBelongsToTrackByCleaning->clear();
+  NumberOfHitsInSegment->clear();
+  StationMask->clear();RequiredStationMask->clear();
+
+  vx->clear(); vy->clear(); vz->clear();
+  vxError->clear(); vyError->clear(); vzError->clear();
+
+  for (unsigned int whichcut=0;whichcut<num_Cuts;whichcut++)
+    SelectorPassed[whichcut]->clear(); 
+  MySelector->clear();
+
+#ifdef TrackingParticles
+  TrkParticles_pt->clear();  TrkParticles_eta->clear(); TrkParticles_phi->clear();
+  TrkParticles_pdgId->clear(); TrkParticles_charge->clear(); 
+  SharedHitsRatio->clear(); MCMatchChi2->clear(); ParToSim.clear(); 
+  DChains->clear(); theSameWithMuon->clear();
+#endif
+}
+
 DiMuonSelector::~DiMuonSelector()
 {
-  //printf("MisRate:%f%%\n",NumMisMatch/(float) (Summarization.Total_TrackerMuons+Summarization.Total_GlobalnotTrackerMuon)*100);
-  //Summarizations
   Summarization_Tree->Fill();
   file->Write();
   file->Close();
 }
-
-// Release all memory when clear vectors - Supposed to fix the memory leak problem - swap with empty vectors - does not work
-/*
-void DiMuonSelector::ClearVecs() {
-  vector<Float_t>().swap(*pt); vector<Float_t>().swap(*eta); vector<Float_t>().swap(*phi);
-  vector<Bool_t>().swap(*chargeMinus); vector<Bool_t>().swap(*isGlobalMu); vector<Bool_t>().swap(*isTrackerMu);
-  vector<Float_t>().swap(*Vertex_x); vector<Float_t>().swap(* Vertex_y); vector<Float_t>().swap(*Vertex_z);
-  vector<Float_t>().swap(*isoR03sumPt); vector<Float_t>().swap(*isoR03emEt); vector<Float_t>().swap(*isoR03hadEt);
-  vector<Float_t>().swap(*isoR03hoEt); vector<Float_t>().swap(*isoR03nJets); vector<Float_t>().swap(*isoR03nTracks);
-  vector<Float_t>().swap(*isoR05sumPt); vector<Float_t>().swap(*isoR05emEt); vector<Float_t>().swap(*isoR05hadEt);
-  vector<Float_t>().swap(*isoR05hoEt); vector<Float_t>().swap(*isoR05nJets); vector<Float_t>().swap(*isoR05nTracks);
-  vector<Float_t>().swap(*isoemVetoEt); vector<Float_t>().swap(*isohadVetoEt); vector<Float_t>().swap(*isohoVetoEt);
-  vector<Float_t>().swap(*TrkKink); vector<Float_t>().swap(*GlbKink); vector<Float_t>().swap(*TrkRelChi2);
-  vector<Float_t>().swap(*CaloE_emMax); vector<Float_t>().swap(*CaloE_emS9); vector<Float_t>().swap(*CaloE_emS25);
-  vector<Float_t>().swap(*CaloE_hadMax); vector<Float_t>().swap(*CaloE_hadS9);
-  vector<Float_t>().swap(*Calo_emPos_R); vector<Float_t>().swap(*Calo_emPos_eta); vector<Float_t>().swap(*Calo_emPos_phi);
-  vector<Float_t>().swap(*Calo_hadPos_R); vector<Float_t>().swap(*Calo_hadPos_eta); vector<Float_t>().swap(*Calo_hadPos_phi);
-  vector<Float_t>().swap(*DiMuonInvariantMass);
-  vector<Float_t>().swap(*dEdx); vector<Float_t>().swap(*dEdxError);
-  vector<Int_t>().swap(*dEdx_numberOfSaturatedMeasurements);
-  vector<Int_t>().swap(*dEdx_numberOfMeasurements);
-  vector<UInt_t>().swap(*InnerTrack_nValidTrackerHits);
-  vector<UInt_t>().swap(*InnerTrack_nValidPixelHits); 
-  vector<UInt_t>().swap(*InnerTrack_nLostTrackerHits);
-  vector<UInt_t>().swap(*InnerTrack_nLostPixelHits);
-  vector<Float_t>().swap(*InnerTrack_chi2); vector<UInt_t>().swap(*InnerTrack_ndof);
-  vector<Float_t>().swap(*GlobalTrack_chi2); vector<UInt_t>().swap(*GlobalTrack_ndof);
-
-  //HLT Objects
-  for( unsigned int i =0; i < num_HLTsSaveObjs;i++) {
-    vector<Float_t>().swap(*HLTObj_pt[i]);
-    vector<Float_t>().swap(*HLTObj_eta[i]);
-    vector<Float_t>().swap(*HLTObj_phi[i]);
-    vector<Bool_t>().swap(*isHLTObj[i]);
-  }
-
-  vector<Float_t>().swap(*TrackDistToChamberEdge);
-  vector<Float_t>().swap(*TrackDistToChamberEdgeErr);
-  vector<Float_t>().swap(*DXTrackToSegment);
-  vector<Float_t>().swap(*DYTrackToSegment);
-  vector<Float_t>().swap(*DXErrTrackToSegment);
-  vector<Float_t>().swap(*DYErrTrackToSegment);
-  vector<Float_t>().swap(*DRTrackToSegment);
-  vector<Float_t>().swap(*DRErrTrackToSegment);
-  vector<Bool_t>().swap(*IsSegmentBelongsToTrackByDR);
-  vector<Bool_t>().swap(*IsSegmentBelongsToTrackByCleaning);
-  vector<UInt_t>().swap(*NumberOfHitsInSegment);
-  vector<UInt_t>().swap(*StationMask);vector<UInt_t>().swap(*RequiredStationMask);
-
-  vector<Float_t>().swap(*vx); vector<Float_t>().swap(*vy); vector<Float_t>().swap(*vz);
-  vector<Float_t>().swap(*vxError); vector<Float_t>().swap(*vyError); vector<Float_t>().swap(*vzError);
-
-  for (unsigned int whichcut=0;whichcut<num_Cuts;whichcut++)
-    vector<Bool_t>().swap(*SelectorPassed[whichcut]);
-  vector<Bool_t>().swap(*MySelector);
-
-#ifdef HepMCGenParticle
-  vector<Float_t>().swap(*Gen_pt); vector<Float_t>().swap(*Gen_eta); vector<Float_t>().swap(*Gen_phi); vector<Int_t>().swap(*Gen_pdgId);
-  vector<Float_t>().swap(*Gen_vx); vector<Float_t>().swap(*Gen_vy); vector<Float_t>().swap(*Gen_vz); vector<Float_t>().swap(*Gen_vt);
-  vector<Bool_t>().swap(*IsParInHep);
-#endif
-  
-#ifdef TrackingParticles
-  vector<Float_t>().swap(*TrkParticles_pt); vector<Float_t>().swap(*TrkParticles_eta); vector<Float_t>().swap(*TrkParticles_phi);
-  vector<Int_t>().swap(*TrkParticles_pdgId); vector<Int_t>().swap(*TrkParticles_charge); 
-  vector<Double_t>().swap(*SharedHitsRatio); vector<Double_t>().swap(*MCMatchChi2);
-  vector<SimTrack *>().swap(ParToSim); vector<HepMC::GenParticle *>().swap(*ParToHep);
-  vector<Int_t>().swap(*DChains); vector<Int_t>().swap(*theSameWithMuon);
-#endif
-}*/
-
 //define this as a plug-in
 DEFINE_FWK_MODULE(DiMuonSelector);
